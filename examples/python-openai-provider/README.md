@@ -71,3 +71,9 @@ examples/python-openai-provider/
 ├── promptfooconfig.yaml
 └── openai_chat.py
 ```
+
+## Command
+
+```bash
+npx promptfoo@latest eval --verbose --no-cache
+```
