@@ -4,11 +4,10 @@ import sys
 from openai import OpenAI, OpenAIError, RateLimitError, APIError
 
 
-
 def validate_messages(messages):
     if not isinstance(messages, list):
         raise ValueError("Messages must be a list")
-    
+
     for msg in messages:
         if not isinstance(msg, dict):
             raise ValueError("Each message must be a dictionary")
@@ -16,6 +15,7 @@ def validate_messages(messages):
             raise ValueError("Each message must have 'role' and 'content' fields")
         if msg["role"] not in ["system", "user", "assistant"]:
             raise ValueError("Message role must be 'system', 'user', or 'assistant'")
+
 
 def call_api(prompt, options=None, context=None):
     try:
@@ -35,14 +35,14 @@ def call_api(prompt, options=None, context=None):
 
         # Make the API call
         response = client.chat.completions.create(
-            model=options.get("model", "gpt-3.5-turbo"),
+            model=options.get("model", "gpt-4o-mini"),
             messages=messages,
             temperature=options.get("temperature", 0.7),
             max_tokens=options.get("max_tokens"),
             top_p=options.get("top_p"),
             frequency_penalty=options.get("frequency_penalty"),
             presence_penalty=options.get("presence_penalty"),
-            stream=options.get("stream", False)
+            stream=options.get("stream", False),
         )
 
         # Format the response
@@ -59,25 +59,13 @@ def call_api(prompt, options=None, context=None):
         return result
 
     except RateLimitError as e:
-        return {
-            "error": f"Rate limit exceeded: {str(e)}",
-            "error_type": "rate_limit"
-        }
+        return {"error": f"Rate limit exceeded: {str(e)}", "error_type": "rate_limit"}
     except APIError as e:
-        return {
-            "error": f"OpenAI API error: {str(e)}",
-            "error_type": "api_error"
-        }
+        return {"error": f"OpenAI API error: {str(e)}", "error_type": "api_error"}
     except OpenAIError as e:
-        return {
-            "error": f"OpenAI error: {str(e)}",
-            "error_type": "openai_error"
-        }
+        return {"error": f"OpenAI error: {str(e)}", "error_type": "openai_error"}
     except Exception as e:
-        return {
-            "error": f"Unexpected error: {str(e)}",
-            "error_type": "unknown"
-        }
+        return {"error": f"Unexpected error: {str(e)}", "error_type": "unknown"}
 
 
 if __name__ == "__main__":
