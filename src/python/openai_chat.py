@@ -1,7 +1,8 @@
 import argparse
 import json
 import sys
-from openai import OpenAI
+from openai import OpenAI, OpenAIError, RateLimitError, APIError
+
 
 
 def validate_messages(messages):
