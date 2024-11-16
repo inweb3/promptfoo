@@ -4,9 +4,17 @@ prompts:
 providers:
   - id: openai:gpt-4o-mini
     config:
-      model: gpt-4o-mini
       temperature: 0.7
       max_tokens: 150
+
+defaultTest:
+  assert:
+    - type: not-contains
+      value: "I am an AI language model"
+    - type: not-contains
+      value: "I apologize"
+    - type: not-contains
+      value: "I cannot"
 
 tests:
   - vars:
@@ -14,20 +22,33 @@ tests:
     assert:
       - type: contains
         value: "Paris"
+  
   - vars:
       message: "Write a haiku about programming"
     assert:
       - type: llm-rubric
-        value: "must be in haiku format"
+        value: "must be a haiku with three lines following 5-7-5 syllable pattern"
+  
   - vars:
       message: "What is 2+2?"
     assert:
       - type: contains
         value: "4"
-
-defaultTest:
-  assert:
-    - type: not-contains
-      value: "I apologize"
-    - type: not-contains
-      value: "I am an AI language model"
+  
+  - vars:
+      message: "Explain quantum computing"
+    assert:
+      - type: contains-all
+        value: 
+          - "quantum"
+          - "qubit"
+          - "superposition"
+  
+  - vars:
+      message: "Write a JavaScript function to reverse a string"
+    assert:
+      - type: contains-all
+        value:
+          - "function"
+          - "return"
+          - "reverse()"
