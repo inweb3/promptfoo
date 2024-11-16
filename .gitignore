@@ -17,3 +17,6 @@ __pycache__
 
 # IDE
 .idea/
+
+logs/
+__pycache__/
