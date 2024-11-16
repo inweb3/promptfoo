@@ -17,7 +17,8 @@ def validate_messages(messages):
             raise ValueError("Message role must be 'system', 'user', or 'assistant'")
 
 
-def call_api(prompt, options=None, context=None):
+def call_api(prompt, options, context):
+    print("Custom Python OpenAI provider called!", file=sys.stderr)
     try:
         # Initialize OpenAI client
         client = OpenAI(
