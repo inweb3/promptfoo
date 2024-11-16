@@ -17,8 +17,29 @@ def validate_messages(messages):
             raise ValueError("Message role must be 'system', 'user', or 'assistant'")
 
 
-def call_api(prompt, options, context):
-    print("Custom Python OpenAI provider called!", file=sys.stderr)
+def call_api(prompt, options=None, context=None):
+    options = options or {}
+    config = options.get('config', {})
+    
+    # Get all configuration parameters with defaults
+    model = config.get('model', 'gpt-4o-mini')
+    temperature = config.get('temperature', 0.7)
+    max_tokens = config.get('max_tokens')
+    top_p = config.get('top_p')
+    frequency_penalty = config.get('frequency_penalty')
+    presence_penalty = config.get('presence_penalty')
+    stop = config.get('stop')
+    
+    # Log configuration
+    print(f"""Custom Python OpenAI provider called with:
+- model: {model}
+- temperature: {temperature}
+- max_tokens: {max_tokens}
+- top_p: {top_p}
+- frequency_penalty: {frequency_penalty}
+- presence_penalty: {presence_penalty}
+- stop: {stop}""", file=sys.stderr)
+
     try:
         # Initialize OpenAI client
         client = OpenAI(
@@ -31,19 +52,20 @@ def call_api(prompt, options, context):
         if isinstance(prompt, str):
             messages = [{"role": "user", "content": prompt}]
         else:
-            messages = json.loads(prompt)
+            messages = json.loads(prompt) if isinstance(prompt, str) else prompt
             validate_messages(messages)
 
-        # Make the API call
+        # Make the API call with all supported parameters
         response = client.chat.completions.create(
-            model=options.get("model", "gpt-4o-mini"),
+            model=model,
             messages=messages,
-            temperature=options.get("temperature", 0.7),
-            max_tokens=options.get("max_tokens"),
-            top_p=options.get("top_p"),
-            frequency_penalty=options.get("frequency_penalty"),
-            presence_penalty=options.get("presence_penalty"),
-            stream=options.get("stream", False),
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            stop=stop,
+            stream=config.get("stream", False),
         )
 
         # Format the response
