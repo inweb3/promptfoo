@@ -1,0 +1,33 @@
+prompts:
+  - file://prompts/chat_prompt.json
+
+providers:
+  - id: openai:gpt-4o-mini
+    config:
+      model: gpt-4o-mini
+      temperature: 0.7
+      max_tokens: 150
+
+tests:
+  - vars:
+      message: "What is the capital of France?"
+    assert:
+      - type: contains
+        value: "Paris"
+  - vars:
+      message: "Write a haiku about programming"
+    assert:
+      - type: llm-rubric
+        value: "must be in haiku format"
+  - vars:
+      message: "What is 2+2?"
+    assert:
+      - type: contains
+        value: "4"
+
+defaultTest:
+  assert:
+    - type: not-contains
+      value: "I apologize"
+    - type: not-contains
+      value: "I am an AI language model"
