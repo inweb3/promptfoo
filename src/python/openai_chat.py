@@ -21,7 +21,6 @@ def validate_messages(messages):
         if msg["role"] not in ["system", "user", "assistant"]:
             raise ValueError("Message role must be 'system', 'user', or 'assistant'")
 
-
 def call_api(prompt, options=None, context=None):
     options = options or {}
     config = options.get('config', {})
@@ -88,8 +87,10 @@ def call_api(prompt, options=None, context=None):
         
         # Handle response format for structured/JSON output
         if response_format:
+            print(f"Debug - Raw response_format: {json.dumps(response_format, indent=2)}", file=sys.stderr)
             if needs_legacy_json:
                 # Fall back to JSON mode for older models
+                print(f"Debug - Using legacy JSON mode", file=sys.stderr)
                 api_params["response_format"] = {"type": "json_object"}
                 
                 # Add system message for JSON formatting if not present
@@ -105,11 +106,21 @@ def call_api(prompt, options=None, context=None):
                 print(f"Debug - Using legacy JSON mode with system message", file=sys.stderr)
             else:
                 # Use native structured output (default)
+                print(f"Debug - Using structured output with schema: {json.dumps(response_format.get('schema', {}))}", file=sys.stderr)
+
+                # Remove any invalid 'type' field inside json_schema
+                json_schema = response_format.get("json_schema", {})
+                if "type" in json_schema:
+                    del json_schema["type"]
+
                 api_params["response_format"] = {
                     "type": "json_schema",
-                    "json_schema": response_format.get('schema', {})  # Pass the schema directly
+                    "json_schema": json_schema,
                 }
-                print(f"Debug - Using structured output with schema: {json.dumps(response_format.get('schema', {}))}", file=sys.stderr)
+                # Ensure the required name is passed
+                if 'name' in response_format.get('json_schema', {}):
+                    api_params["response_format"]["json_schema"]["name"] = response_format['json_schema']['name']
+                print(f"Debug - Using structured output with schema: {json.dumps(response_format.get('json_schema', {}))}", file=sys.stderr)
 
         print(f"Debug - Final API params: {json.dumps(api_params, indent=2)}", file=sys.stderr)
 
@@ -145,7 +156,6 @@ def call_api(prompt, options=None, context=None):
     except Exception as e:
         print(f"Debug - Unexpected error: {str(e)}", file=sys.stderr)
         return {"error": f"Unexpected error: {str(e)}", "error_type": "unknown"}
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
