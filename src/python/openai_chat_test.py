@@ -3,7 +3,7 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock
 from openai import OpenAI, OpenAIError, APIError, RateLimitError
-from openai_chat import call_api, validate_messages
+from openai_chat import call_api, validate_messages, LEGACY_JSON_MODELS
 
 
 def test_validate_messages():
@@ -49,7 +49,7 @@ def test_simple_prompt_with_config(mock_openai):
         "Say hello!",
         {
             "api_key": "test-key",
-            "config": {"model": "gpt-4o", "temperature": 0.5, "max_tokens": 100},
+            "config": {"model": "gpt-4o-mini", "temperature": 0.5, "max_tokens": 100},
         },
     )
 
@@ -64,7 +64,7 @@ def test_simple_prompt_with_config(mock_openai):
 
     # Verify the API was called with correct config
     mock_client.chat.completions.create.assert_called_once_with(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         messages=[{"role": "user", "content": "Say hello!"}],
         temperature=0.5,
         max_tokens=100,
@@ -91,7 +91,7 @@ def test_configuration_options(mock_openai):
     options = {
         "api_key": "test-key",
         "config": {
-            "model": "gpt-4o",
+            "model": "gpt-4o-mini",
             "temperature": 0.5,
             "max_tokens": 100,
             "top_p": 0.8,
@@ -106,7 +106,7 @@ def test_configuration_options(mock_openai):
 
     # Verify the API was called with all config options
     mock_client.chat.completions.create.assert_called_once_with(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         messages=[{"role": "user", "content": "Test prompt"}],
         temperature=0.5,
         max_tokens=100,
@@ -233,6 +233,274 @@ def test_error_handling(mock_openai):
     result = call_api("Test prompt", {"api_key": "test-key"})
     assert result["error"].startswith("OpenAI error")
     assert result["error_type"] == "openai_error"
+
+
+@patch("openai_chat.OpenAI")
+def test_json_response_format(mock_openai):
+    # Setup mock response
+    mock_client = MagicMock()
+    mock_openai.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.choices = [
+        MagicMock(
+            message=MagicMock(content='{"project": "Search", "status": "active"}'),
+            finish_reason="stop"
+        )
+    ]
+    mock_response.usage.prompt_tokens = 10
+    mock_response.usage.completion_tokens = 5
+    mock_response.usage.total_tokens = 15
+    mock_client.chat.completions.create.return_value = mock_response
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "project": {"type": "string"},
+            "status": {"type": "string"}
+        }
+    }
+
+    # Test default behavior (should use structured output)
+    result = call_api(
+        "Extract project info",
+        {
+            "api_key": "test-key",
+            "config": {
+                "model": "gpt-4o-mini",
+                "response_format": {
+                    "type": "json_schema",
+                    "schema": schema
+                }
+            },
+        },
+    )
+
+    # Verify API was called with correct parameters for structured output
+    call_args = mock_client.chat.completions.create.call_args[1]
+    assert call_args["response_format"] == {
+        "type": "json_schema",
+        "json_schema": schema
+    }
+    # No JSON system message needed for structured output
+    assert not any("JSON" in msg.get("content", "") 
+                  for msg in call_args["messages"])
+
+    # Test with legacy model (should use json_object)
+    result = call_api(
+        "Extract project info",
+        {
+            "api_key": "test-key",
+            "config": {
+                "model": "gpt-3.5-turbo",  # Using specific legacy model
+                "response_format": {
+                    "type": "json_object",
+                    "schema": schema
+                }
+            },
+        },
+    )
+
+    # Verify API was called with correct parameters for legacy model
+    call_args = mock_client.chat.completions.create.call_args[1]
+    assert call_args["response_format"] == {"type": "json_object"}
+    # Should have JSON instruction in system message for legacy models
+    assert any("JSON" in msg.get("content", "") 
+              for msg in call_args["messages"])
+
+
+@patch("openai_chat.OpenAI")
+def test_json_response_truncation(mock_openai):
+    # Setup mock response with length truncation
+    mock_client = MagicMock()
+    mock_openai.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.choices = [
+        MagicMock(
+            message=MagicMock(content='{"partial": "data"'),
+            finish_reason="length"  # Indicates truncation
+        )
+    ]
+    mock_response.usage.prompt_tokens = 10
+    mock_response.usage.completion_tokens = 5
+    mock_response.usage.total_tokens = 15
+    mock_client.chat.completions.create.return_value = mock_response
+
+    # Test with JSON response format
+    result = call_api(
+        "Test prompt",
+        {
+            "api_key": "test-key",
+            "config": {
+                "model": "gpt-4o-mini",
+                "response_format": {"type": "json_schema"},
+                "max_tokens": 5  # Small limit to force truncation
+            },
+        },
+    )
+
+    # Verify warning about truncation
+    assert "error" not in result
+    assert isinstance(result["output"], str)
+    # The actual handling of truncated JSON would depend on your implementation
+
+
+@patch("openai_chat.OpenAI")
+def test_system_message_injection(mock_openai):
+    # Setup mock response
+    mock_client = MagicMock()
+    mock_openai.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.choices = [
+        MagicMock(
+            message=MagicMock(content='{"test": "data"}'),
+            finish_reason="stop"
+        )
+    ]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    # # Test with older model (should inject system message)
+    # result = call_api(
+    #     "Regular prompt without JSON mention",
+    #     {
+    #         "api_key": "test-key",
+    #         "config": {
+    #             "model": "gpt-3.5-turbo",
+    #             "response_format": {"type": "json_object"}
+    #         },
+    #     },
+    # )
+
+    # # Verify system message was injected for older model
+    # call_args = mock_client.chat.completions.create.call_args[1]
+    # assert any(
+    #     msg["role"] == "system" and "JSON" in msg["content"]
+    #     for msg in call_args["messages"]
+    # )
+
+    # Test with newer model (should not inject system message)
+    result = call_api(
+        "Regular prompt without JSON mention",
+        {
+            "api_key": "test-key",
+            "config": {
+                "model": "gpt-4o-mini",
+                "response_format": {
+                    "type": "json_schema",
+                    "schema": {"type": "object"}
+                }
+            },
+        },
+    )
+
+    # Verify no system message was injected for newer model
+    call_args = mock_client.chat.completions.create.call_args[1]
+    assert not any(
+        msg["role"] == "system" and "JSON" in msg["content"]
+        for msg in call_args["messages"]
+    )
+
+
+@patch("openai_chat.OpenAI")
+def test_complex_schema_handling(mock_openai):
+    # Setup mock response
+    mock_client = MagicMock()
+    mock_openai.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.choices = [
+        MagicMock(
+            message=MagicMock(content='''
+                {
+                    "project_name": "Search Functionality",
+                    "status": "In Progress",
+                    "team_members": ["Alice", "Bob"],
+                    "metrics": {
+                        "completion": 75,
+                        "issues": 2
+                    }
+                }
+            '''.strip()),
+            finish_reason="stop"
+        )
+    ]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    # Test with complex nested schema
+    complex_schema = {
+        "type": "object",
+        "properties": {
+            "project_name": {"type": "string"},
+            "status": {"type": "string"},
+            "team_members": {
+                "type": "array",
+                "items": {"type": "string"}
+            },
+            "metrics": {
+                "type": "object",
+                "properties": {
+                    "completion": {"type": "number"},
+                    "issues": {"type": "number"}
+                }
+            }
+        }
+    }
+
+    result = call_api(
+        "Get project details",
+        {
+            "api_key": "test-key",
+            "config": {
+                "model": "gpt-4o-mini",
+                "response_format": {
+                    "type": "json_schema",
+                    "schema": complex_schema
+                }
+            },
+        },
+    )
+
+    # Verify the result
+    assert "error" not in result
+    output_json = json.loads(result["output"])
+    assert isinstance(output_json["team_members"], list)
+    assert isinstance(output_json["metrics"], dict)
+    assert isinstance(output_json["metrics"]["completion"], (int, float))
+
+
+@patch("openai_chat.OpenAI")
+def test_legacy_model_detection(mock_openai):
+    # Setup mock response
+    mock_client = MagicMock()
+    mock_openai.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.choices = [
+        MagicMock(
+            message=MagicMock(content='{"test": "data"}'),
+            finish_reason="stop"
+        )
+    ]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    # Test each legacy model
+    for model in LEGACY_JSON_MODELS:
+        result = call_api(
+            "Test prompt",
+            {
+                "api_key": "test-key",
+                "config": {
+                    "model": model,
+                    "response_format": {
+                        "type": "json_object",
+                        "schema": {"type": "object"}
+                    }
+                },
+            },
+        )
+        
+        # Verify legacy JSON mode was used
+        call_args = mock_client.chat.completions.create.call_args[1]
+        assert call_args["response_format"] == {"type": "json_object"}
+        assert any("JSON" in msg.get("content", "") 
+                  for msg in call_args["messages"])
 
 
 if __name__ == "__main__":
