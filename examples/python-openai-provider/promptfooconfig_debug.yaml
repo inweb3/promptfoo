@@ -1,0 +1,60 @@
+prompts:
+  - file://prompts/chat_prompt.json
+
+providers:
+  - id: file://openai_chat_debug.py:call_api:gpt-4o-mini
+    label: 'Custom Python OpenAI Provider'
+    config:
+      temperature: 0.5
+      max_tokens: 2048
+      top_p: 0.9
+      frequency_penalty: 0.5
+      presence_penalty: 0.5
+      stop: ['Human:', 'AI:']
+
+tests:
+  - vars:
+      message: 'What is the capital of France?'
+    assert:
+      - type: contains
+        value: 'Paris'
+
+  - vars:
+      message: |
+        Write a haiku about programming following this exact pattern:
+        First line: 5 syllables (like "Typing in silence")
+        Second line: 7 syllables (like "Fingers dance on keyboard keys")
+        Third line: 5 syllables (like "Code comes to life now")
+        Make sure each line has exactly the specified number of syllables.
+    assert:
+      - type: llm-rubric
+        value: 'must be exactly three lines following 5-7-5 syllable pattern'
+
+  - vars:
+      message: 'What is 2+2?'
+    assert:
+      - type: contains
+        value: '4'
+
+  - vars:
+      message: 'Explain quantum computing'
+    assert:
+      - type: contains
+        value: 'qubit'
+      - type: contains
+        value: 'quantum'
+
+  - vars:
+      message: 'Write a JavaScript function to reverse a string'
+    assert:
+      - type: contains
+        value: 'function'
+      - type: contains
+        value: 'return'
+
+defaultTest:
+  assert:
+    - type: not-contains
+      value: 'I am an AI language model'
+    - type: not-contains
+      value: 'I apologize'

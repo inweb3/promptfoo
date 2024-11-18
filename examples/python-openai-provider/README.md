@@ -21,7 +21,7 @@ export OPENAI_API_KEY=your_api_key
 1. Evaluate a prompt:
 
 ```bash
-npx promptfoo@latest eval -c pf_m.yaml
+promptfoo eval -c promptfooconfig_json.yaml
 ```
 
 2. View the results:
@@ -35,7 +35,7 @@ npx promptfoo@latest view
 ```bash
 export PROMPTFOO_ENABLE_DATABASE_LOGS=true
 export LOG_LEVEL=debug
-npx promptfoo@latest eval -c pf_m.yaml
+promptfoo eval -c promptfooconfig_json.yaml
 ```
 
 ## Create `requirements.txt`
@@ -44,7 +44,7 @@ npx promptfoo@latest eval -c pf_m.yaml
 openai>=1.0.0
 ```
 
-## Configuration File (`pf_m.yaml`)
+## Configuration File (`promptfooconfig_json.yaml`)
 
 ```yaml
 providers:
@@ -66,7 +66,7 @@ Your project directory should look like this:
 examples/python-openai-provider/
 ├── README.md
 ├── requirements.txt
-├── pf_m.yaml         # Configuration with JSON schema
+├── promptfooconfig_json.yaml         # Configuration with JSON schema
 ├── openai_chat.py    # Production provider
 └── openai_chat_debug.py  # Debug version with detailed logging
 ```
@@ -113,17 +113,17 @@ Key differences:
 
 1. Run with JSON schema configuration:
 ```bash
-promptfoo eval -c pf_m.yaml
+promptfoo eval -c promptfooconfig_json.yaml
 # or
-npx promptfoo@latest eval -c pf_m.yaml
+npx promptfoo@latest eval -c promptfooconfig_json.yaml
 ```
 
 2. Run with debug logging:
 ```bash
 export PROMPTFOO_ENABLE_DATABASE_LOGS=true
-promptfoo eval -c pf_m.yaml --verbose --no-cache
+promptfoo eval -c promptfooconfig_json.yaml --verbose --no-cache
 # or
-npx promptfoo@latest eval -c pf_m.yaml --verbose --no-cache
+npx promptfoo@latest eval -c promptfooconfig_json.yaml --verbose --no-cache
 ```
 
 3. Run with text-based assertions:
@@ -135,7 +135,7 @@ npx promptfoo@latest eval -c promptfooconfig.yaml
 
 ## Configuration Examples
 
-1. JSON Schema Configuration (`pf_m.yaml`):
+1. JSON Schema Configuration (`promptfooconfig_json.yaml`):
 ```yaml
 providers:
   - id: file://openai_chat.py:call_api:gpt-4o-mini
