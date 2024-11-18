@@ -27,77 +27,95 @@ def debug_log(msg, obj=None, level="INFO"):
 def call_api(prompt, options=None, context=None):
     """Main API handler with enhanced debugging"""
     try:
+        # 1. Initial Debug Logging
         debug_log("Starting API call with prompt:", prompt, "START")
         debug_log("Raw options received:", options, "START")
         debug_log("Raw context received:", context, "START")
-        
-        # Add logging for test context if present
-        if context and 'test' in context:
-            debug_log("Test configuration:", context['test'], "TEST-CONFIG")
 
+        # 2. Parse Configuration
         options = options or {}
         config = options.get("config", {})
 
-        # Initialize OpenAI client
-        client = OpenAI(
-            api_key=options.get("api_key"),
-            organization=options.get("organization"),
-            base_url=options.get("base_url"),
-        )
+        # 3. Parse model from provider ID
+        provider_id = options.get("id", "")
+        model = provider_id.split(":")[-1] if ":" in provider_id else "gpt-4o-mini"
+        debug_log("Model from provider ID:", model, "CONFIG")
 
-        # Parse messages
-        if isinstance(prompt, str):
-            messages = [{"role": "user", "content": prompt}]
-        else:
-            messages = json.loads(prompt) if isinstance(prompt, str) else prompt
-        debug_log("Parsed messages:", messages, "INIT")
+        # 4. Log All Configuration Options
+        debug_log("=== CONFIGURATION DETAILS ===", None, "CONFIG")
 
-        # Set model version explicitly
-        model = "gpt-4o-mini"
-        debug_log("Using model:", model, "CONFIG")
+        # 4.1 Client Configuration
+        client_config = {
+            "api_key": options.get("api_key"),
+            "organization": options.get("organization"),
+            "base_url": options.get("base_url"),
+        }
+        debug_log("OpenAI Client Configuration:", client_config, "CONFIG")
 
-        # Basic API parameters
-        api_params = {
-            "model": model,
-            "messages": messages,
+        # 4.2 Model Configuration
+        model_config = {
+            "model": model,  # Use model from provider ID
             "temperature": config.get("temperature", 0.7),
             "max_tokens": config.get("max_tokens"),
             "top_p": config.get("top_p", 1),
             "presence_penalty": config.get("presence_penalty", 0),
             "frequency_penalty": config.get("frequency_penalty", 0),
         }
+        debug_log("Model Configuration:", model_config, "CONFIG")
 
-        # Handle response format
+        # 3.3 Response Format Configuration
         response_format = config.get("response_format")
-        if response_format:
-            debug_log("Response format from config:", response_format, "CONFIG")
-            api_params["response_format"] = {
-                "type": "json_schema",
-                "json_schema": response_format.get("json_schema", {}),
-            }
-            debug_log("Final response format:", api_params["response_format"], "CONFIG")
+        debug_log("Response Format Configuration:", response_format, "CONFIG")
 
-        debug_log("Final API parameters:", api_params, "API")
-
-        # Make API call
-        response = client.chat.completions.create(**api_params)
-        debug_log("Raw API response:", response.model_dump(), "RESPONSE")
-
-        # Extract and parse content
-        content = response.choices[0].message.content
-        debug_log("Response content:", content, "CONTENT")
-
-        # Parse the JSON response
-        parsed_content = json.loads(content)
-        debug_log("Parsed content:", parsed_content, "RESULT")
-
-        # Return with the required "output" key
-        return {
-            "output": parsed_content
+        # 3.4 Provider-Specific Configuration
+        provider_config = {
+            "id": options.get("id"),
+            "base_path": config.get("basePath"),
+            "prompt_prefix": config.get("prompt", {}).get("prefix"),
+            "prompt_suffix": config.get("prompt", {}).get("suffix"),
         }
+        debug_log("Provider Configuration:", provider_config, "CONFIG")
+
+        # 5. Initialize Client
+        client = OpenAI(**client_config)
+
+        # 6. Parse Messages
+        if isinstance(prompt, str):
+            messages = [{"role": "user", "content": prompt}]
+        else:
+            messages = json.loads(prompt) if isinstance(prompt, str) else prompt
+        debug_log("Parsed Messages:", messages, "INIT")
+
+        # 7. Build API Parameters
+        api_params = {
+            **model_config,
+            "messages": messages,
+        }
+
+        # Add response format if provided
+        if response_format:
+            api_params["response_format"] = response_format
+            debug_log("Added Response Format:", api_params["response_format"], "CONFIG")
+
+        debug_log("Final API Parameters:", api_params, "API")
+
+        # 8. Make API Call
+        response = client.chat.completions.create(**api_params)
+        debug_log("Raw API Response:", response.model_dump(), "RESPONSE")
+
+        # 9. Process Response
+        content = response.choices[0].message.content
+        debug_log("Response Content:", content, "CONTENT")
+
+        # 10. Parse JSON Response
+        parsed_content = json.loads(content)
+        debug_log("Parsed Content:", parsed_content, "RESULT")
+
+        return {"output": parsed_content}
 
     except Exception as e:
         debug_log(f"Error: {str(e)}", None, "ERROR")
+        debug_log("Error Traceback:", traceback.format_exc(), "ERROR")
         return {"error": f"Unexpected error: {str(e)}"}
 
 
