@@ -58,7 +58,11 @@ def call_api(prompt, options=None, context=None):
         response = client.chat.completions.create(**api_params)
         content = response.choices[0].message.content
 
-        return {"output": json.loads(content)}
+        # Try to parse as JSON, fallback to raw content if not valid JSON
+        try:
+            return {"output": json.loads(content)}
+        except json.JSONDecodeError:
+            return {"output": content}
 
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)}"}

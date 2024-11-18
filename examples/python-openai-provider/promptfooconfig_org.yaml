@@ -2,8 +2,7 @@ prompts:
   - file://prompts/chat_prompt.json
 
 providers:
-  - id: file://openai_chat.py:call_api:gpt-4o-mini
-    label: 'Custom Python OpenAI Provider'
+  - id: openai:gpt-4o-mini
     config:
       temperature: 0.5
       max_tokens: 2048

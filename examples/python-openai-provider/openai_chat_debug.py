@@ -107,11 +107,14 @@ def call_api(prompt, options=None, context=None):
         content = response.choices[0].message.content
         debug_log("Response Content:", content, "CONTENT")
 
-        # 10. Parse JSON Response
-        parsed_content = json.loads(content)
-        debug_log("Parsed Content:", parsed_content, "RESULT")
-
-        return {"output": parsed_content}
+        # 10. Try to parse as JSON, fallback to raw content if not valid JSON
+        try:
+            parsed_content = json.loads(content)
+            debug_log("Parsed Content:", parsed_content, "RESULT")
+            return {"output": parsed_content}
+        except json.JSONDecodeError:
+            debug_log("Content is not JSON, returning raw content", None, "INFO")
+            return {"output": content}
 
     except Exception as e:
         debug_log(f"Error: {str(e)}", None, "ERROR")
