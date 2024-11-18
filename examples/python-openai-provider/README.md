@@ -21,7 +21,7 @@ export OPENAI_API_KEY=your_api_key
 1. Evaluate a prompt:
 
 ```bash
-npx promptfoo@latest eval
+npx promptfoo@latest eval -c pf_m.yaml
 ```
 
 2. View the results:
@@ -30,50 +30,75 @@ npx promptfoo@latest eval
 npx promptfoo@latest view
 ```
 
+3. Enable debug logging (optional):
+
+```bash
+export PROMPTFOO_ENABLE_DATABASE_LOGS=true
+export LOG_LEVEL=debug
+npx promptfoo@latest eval -c pf_m.yaml
+```
+
 ## Create `requirements.txt`
 
 ```txt
 openai>=1.0.0
 ```
 
-## Create `promptfooconfig.yaml`
+## Configuration File (`pf_m.yaml`)
 
 ```yaml
-prompts:
-"What is 2+2?"
-"Write a haiku about programming"
-"Explain quantum computing"
 providers:
-id: file://openai_chat.py
-config:
-model: gpt-4o-mini
-temperature: 0.7
-max_tokens: 150
-tests:
-vars: {}
-assert:
-type: contains
-value: "4" # For the first prompt
+  - id: file://openai_chat.py:call_api:gpt-4o-mini
+    config:
+      temperature: 0.5
+      response_format:
+        json_schema:
+          name: standup_notes_object
+          schema:
+            # ... schema details ...
 ```
 
-## Copy the OpenAI provider to the current directory
+## Project Structure
 
-```bash
-cp src/python/openai_chat.py .
-```
-
-Your project directory should now look like this:
+Your project directory should look like this:
 
 ```bash
 examples/python-openai-provider/
 ├── README.md
 ├── requirements.txt
-├── promptfooconfig.yaml
-└── openai_chat.py
+├── pf_m.yaml         # Configuration with JSON schema
+├── openai_chat.py    # Production provider
+└── openai_chat_debug.py  # Debug version with detailed logging
 ```
 
-## Command
+## Provider ID Format
 
+The provider ID follows this format:
+```
+file://<script_path>:call_api:<model_name>
+```
+
+For example:
+```yaml
+id: file://openai_chat.py:call_api:gpt-4o-mini
+```
+
+## Example Commands
+
+1. Run with configuration:
 ```bash
-npx promptfoo@latest eval --verbose --no-cache
+npx promptfoo@latest eval -c pf_m.yaml
 ```
+
+2. Run with debug logging:
+```bash
+export PROMPTFOO_ENABLE_DATABASE_LOGS=true
+npx promptfoo@latest eval -c pf_m.yaml --verbose --no-cache
+```
+
+## Notes
+
+- The provider supports both simple text responses and structured JSON output
+- Debug logging can be enabled via environment variables
+- The debug version (`openai_chat_debug.py`) provides detailed logging for development
+- Model name is specified in the provider ID rather than config

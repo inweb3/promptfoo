@@ -1,0 +1,80 @@
+prompts:
+  - 'Consider this transcript and extract the following information.
+
+    # Transcript:
+    {{context}}
+    '
+
+providers:
+  - id: file://openai_chat_debug.py:call_api:gpt-4o-mini
+    config:
+      temperature: 0.5
+      response_format:
+        json_schema:
+          name: standup_notes_object
+          schema:
+            additionalProperties: false
+            properties:
+              project_name:
+                description: The name of the project, in Title Case. Exclude the word 'Project' from project names. If none, output 'Not Found'.
+                type: string
+              project_status:
+                description: The current status of the property or item
+                enum:
+                  - Complete
+                  - On Track
+                  - At Risk
+                  - Not Found
+                type: string
+              project_target_date:
+                description: The proposed release date of the project, if available. Format is mm/dd/yyyy. Otherwise 'Not Found'
+                type: string
+              reasoning:
+                description: Analysis of the context
+                type: string
+              summary:
+                description: Key points summary
+                type: string
+            required:
+              - reasoning
+              - project_name
+              - project_target_date
+              - project_status
+              - summary
+            type: object
+          strict: true
+        type: json_schema
+
+tests:
+  - assert:
+      - metric: project_name
+        type: python
+        value: |
+          # Add detailed debugging of input
+          print("\n=== DETAILED DEBUG INFO ===")
+          print(f"1. Output Type: {type(output)}")
+          print(f"2. Output Dir: {dir(output)}")
+          print(f"3. Raw Output: {json.dumps(output, indent=2)}")
+
+          try:
+              if isinstance(output, str):
+                  print("4a. Processing string input")
+                  parsed = json.loads(output)
+              else:
+                  print("4b. Processing non-string input")
+                  parsed = output
+              
+              print(f"5. Parsed Type: {type(parsed)}")
+              print(f"6. Parsed Content: {json.dumps(parsed, indent=2)}")
+              project_name = parsed.get('project_name','')
+              print(f"7. Project Name: {project_name}")
+              result = project_name.lower() == 'apollo'
+              print(f"8. Final Result: {result}")
+              return result
+          except Exception as e:
+              print(f"ERROR: {str(e)}")
+              print(f"ERROR Type: {type(e)}")
+              return False
+    description: Test single case for debugging
+    vars:
+      context: "[info] Standup time: 10/03/2024 09:15:00\nAlice: Hey team! Let's kick off with our updates. Remember, we're focusing on the Apollo Project this week..."
