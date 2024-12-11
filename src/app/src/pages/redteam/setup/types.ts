@@ -8,6 +8,16 @@ export interface Config {
   plugins: (RedteamPlugin | { id: string; config?: any })[];
   strategies: RedteamStrategy[];
   purpose?: string;
+  applicationDefinition: {
+    purpose?: string;
+    systemPrompt?: string;
+    redteamUser?: string;
+    accessToData?: string;
+    forbiddenData?: string;
+    accessToActions?: string;
+    forbiddenActions?: string;
+    connectedSystems?: string;
+  };
   entities: string[];
 }
 
@@ -15,18 +25,22 @@ export interface ProviderOptions {
   id: string;
   label?: string;
   config: {
+    // Custom provider config can have anything
+    [key: string]: any;
+
     type?: 'http' | 'websocket' | 'browser';
     // HTTP/WebSocket specific options
     url?: string;
     method?: string;
     headers?: Record<string, string>;
-    body?: string;
+    body?: string | object;
     messageTemplate?: string;
     // Browser specific options
     steps?: BrowserStep[];
     headless?: boolean;
     timeoutMs?: number;
-    responseParser?: string;
+    transformResponse?: string;
+    sessionParser?: string;
     cookies?:
       | Array<{
           name: string;

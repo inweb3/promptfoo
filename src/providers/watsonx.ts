@@ -1,13 +1,14 @@
 import type { WatsonXAI as WatsonXAIClient } from '@ibm-cloud/watsonx-ai';
 import crypto from 'crypto';
 import type { IamAuthenticator, BearerTokenAuthenticator } from 'ibm-cloud-sdk-core';
-import invariant from 'tiny-invariant';
 import { z } from 'zod';
 import { getCache, isCacheEnabled } from '../cache';
 import { getEnvString } from '../envars';
 import logger from '../logger';
-import type { ApiProvider, EnvOverrides, ProviderResponse, TokenUsage } from '../types';
+import type { ApiProvider, ProviderResponse, TokenUsage } from '../types';
+import type { EnvOverrides } from '../types/env';
 import type { ProviderOptions } from '../types/providers';
+import invariant from '../util/invariant';
 import { calculateCost } from './shared';
 
 interface TextGenRequestParametersModel {

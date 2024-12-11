@@ -1,4 +1,3 @@
-import invariant from 'tiny-invariant';
 import logger from '../logger';
 import type {
   ApiProvider,
@@ -7,6 +6,7 @@ import type {
   ProviderOptions,
   ProviderResponse,
 } from '../types';
+import invariant from '../util/invariant';
 import { getNunjucksEngine } from '../util/templates';
 import { PromptfooSimulatedUserProvider } from './promptfoo';
 
@@ -82,9 +82,11 @@ export class SimulatedUser implements ApiProvider {
     logger.debug(`Formatted user instructions: ${instructions}`);
     let messages: Message[] = [];
     const maxTurns = this.maxTurns;
+    let numRequests = 0;
     for (let i = 0; i < maxTurns; i++) {
       messages = await this.sendMessageToUser(messages, userProvider);
       messages = await this.sendMessageToAgent(messages, context.originalProvider);
+      numRequests += 1; // Only count the request to the agent.
 
       const lastMessage = messages[messages.length - 1];
       if (lastMessage.content.includes('###STOP###')) {
@@ -98,6 +100,9 @@ export class SimulatedUser implements ApiProvider {
           (message) => `${message.role === 'assistant' ? 'Assistant' : 'User'}: ${message.content}`,
         )
         .join('\n---\n'),
+      tokenUsage: {
+        numRequests,
+      },
     };
   }
 

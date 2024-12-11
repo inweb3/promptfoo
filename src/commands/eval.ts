@@ -4,7 +4,6 @@ import type { Command } from 'commander';
 import dedent from 'dedent';
 import fs from 'fs';
 import * as path from 'path';
-import invariant from 'tiny-invariant';
 import { z } from 'zod';
 import { fromError } from 'zod-validation-error';
 import { disableCache } from '../cache';
@@ -28,10 +27,11 @@ import type {
 } from '../types';
 import { OutputFileExtension, TestSuiteSchema } from '../types';
 import { CommandLineOptionsSchema } from '../types';
-import { maybeLoadFromExternalFile } from '../util';
+import { isRunningUnderNpx, maybeLoadFromExternalFile } from '../util';
 import { printBorder, setupEnv, writeMultipleOutputs } from '../util';
 import { clearConfigCache, loadDefaultConfig } from '../util/config/default';
 import { resolveConfigs } from '../util/config/load';
+import invariant from '../util/invariant';
 import { filterProviders } from './eval/filterProviders';
 import { filterTests } from './eval/filterTests';
 
@@ -78,6 +78,8 @@ export async function doEval(
     telemetry.record('command_used', {
       name: 'eval - started',
       watch: Boolean(cmdObj.watch),
+      // Only set when redteam is enabled for sure, because we don't know if config is loaded yet
+      ...(Boolean(config?.redteam) && { isRedteam: true }),
     });
     await telemetry.send();
 
@@ -216,6 +218,7 @@ export async function doEval(
       prompt: 0,
       completion: 0,
       cached: 0,
+      numRequests: 0,
     };
 
     // Calculate our total successes and failures
@@ -230,6 +233,7 @@ export async function doEval(
       tokenUsage.prompt += prompt.metrics?.tokenUsage?.prompt || 0;
       tokenUsage.completion += prompt.metrics?.tokenUsage?.completion || 0;
       tokenUsage.cached += prompt.metrics?.tokenUsage?.cached || 0;
+      tokenUsage.numRequests += prompt.metrics?.tokenUsage?.numRequests || 0;
     }
     const totalTests = successes + failures;
     const passRate = (successes / totalTests) * 100;
@@ -289,6 +293,8 @@ export async function doEval(
 
     printBorder();
 
+    const isRedteam = Boolean(config.redteam);
+
     logger.info(chalk.green.bold(`Successes: ${successes}`));
     logger.info(chalk.red.bold(`Failures: ${failures}`));
     if (!Number.isNaN(passRate)) {
@@ -296,7 +302,7 @@ export async function doEval(
     }
     if (tokenUsage.total > 0) {
       logger.info(
-        `Token usage: Total ${tokenUsage.total}, Prompt ${tokenUsage.prompt}, Completion ${tokenUsage.completion}, Cached ${tokenUsage.cached}`,
+        `${isRedteam ? `Total probes: ${tokenUsage.numRequests.toLocaleString()} / ` : ''}Total tokens: ${tokenUsage.total.toLocaleString()} / Prompt tokens: ${tokenUsage.prompt.toLocaleString()} / Completion tokens: ${tokenUsage.completion.toLocaleString()} / Cached tokens: ${tokenUsage.cached.toLocaleString()}`,
       );
     }
 
@@ -304,7 +310,7 @@ export async function doEval(
       name: 'eval',
       watch: Boolean(cmdObj.watch),
       duration: Math.round((Date.now() - startTime) / 1000),
-      isRedteam: Boolean(testSuite.redteam),
+      isRedteam,
     });
     await telemetry.send();
 
@@ -419,7 +425,7 @@ export function evalCommand(
     // Core configuration
     .option(
       '-c, --config <paths...>',
-      'Path to configuration file. Automatically loads promptfooconfig.js/json/yaml',
+      'Path to configuration file. Automatically loads promptfooconfig.yaml',
     )
     .option('--env-file, --env-path <path>', 'Path to .env file')
 
@@ -558,12 +564,13 @@ export function evalCommand(
       }
 
       if (validatedOpts.interactiveProviders) {
+        const runCommand = isRunningUnderNpx() ? 'npx promptfoo eval' : 'promptfoo eval';
         logger.warn(
           chalk.yellow(dedent`
           Warning: The --interactive-providers option has been removed.
 
           Instead, use -j 1 to run evaluations with a concurrency of 1:
-          ${chalk.green('promptfoo eval -j 1')}
+          ${chalk.green(`${runCommand} -j 1`)}
         `),
         );
         process.exit(2);

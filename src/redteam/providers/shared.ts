@@ -5,12 +5,13 @@ import {
   isApiProvider,
   type RedteamFileConfig,
   type ApiProvider,
-  type CallApiContextParams,
   type CallApiOptionsParams,
+  type TokenUsage,
+  type CallApiContextParams,
 } from '../../types';
 import { ATTACKER_MODEL, ATTACKER_MODEL_SMALL, TEMPERATURE } from './constants';
 
-export async function loadRedteamProvider({
+async function loadRedteamProvider({
   provider,
   jsonOnly = false,
   preferSmallModel = false,
@@ -19,8 +20,6 @@ export async function loadRedteamProvider({
   jsonOnly?: boolean;
   preferSmallModel?: boolean;
 } = {}) {
-  // FIXME(ian): This approach only works on CLI, it doesn't work when running via node module.
-  // That's ok for now because we only officially support redteams from CLI.
   let ret;
   const redteamProvider = provider || cliState.config?.redteam?.provider;
   if (isApiProvider(redteamProvider)) {
@@ -46,33 +45,94 @@ export async function loadRedteamProvider({
   return ret;
 }
 
+class RedteamProviderManager {
+  private provider: ApiProvider | undefined;
+  private jsonOnlyProvider: ApiProvider | undefined;
+
+  clearProvider() {
+    this.provider = undefined;
+    this.jsonOnlyProvider = undefined;
+  }
+
+  async setProvider(provider: RedteamFileConfig['provider']) {
+    this.provider = await loadRedteamProvider({ provider });
+    this.jsonOnlyProvider = await loadRedteamProvider({ provider, jsonOnly: true });
+  }
+
+  async getProvider({
+    provider,
+    jsonOnly = false,
+    preferSmallModel = false,
+  }: {
+    provider?: RedteamFileConfig['provider'];
+    jsonOnly?: boolean;
+    preferSmallModel?: boolean;
+  }): Promise<ApiProvider> {
+    if (this.provider && this.jsonOnlyProvider) {
+      logger.debug(`[RedteamProviderManager] Using cached redteam provider: ${this.provider.id()}`);
+      return jsonOnly ? this.jsonOnlyProvider : this.provider;
+    }
+
+    logger.debug(
+      `[RedteamProviderManager] Loading redteam provider: ${JSON.stringify({
+        providedConfig: typeof provider == 'string' ? provider : (provider?.id ?? 'none'),
+        jsonOnly,
+        preferSmallModel,
+      })}`,
+    );
+    const redteamProvider = await loadRedteamProvider({ provider, jsonOnly, preferSmallModel });
+    logger.debug(`[RedteamProviderManager] Loaded redteam provider: ${redteamProvider.id()}`);
+    return redteamProvider;
+  }
+}
+
+export const redteamProviderManager = new RedteamProviderManager();
+
+export type TargetResponse = {
+  output: string;
+  error?: string;
+  sessionId?: string;
+  tokenUsage?: TokenUsage;
+};
+
 /**
  * Gets the response from the target provider for a given prompt.
  * @param targetProvider - The API provider to get the response from.
  * @param targetPrompt - The prompt to send to the target provider.
- * @returns A promise that resolves to the target provider's response as a string.
+ * @returns A promise that resolves to the target provider's response as an object.
  */
 export async function getTargetResponse(
   targetProvider: ApiProvider,
   targetPrompt: string,
   context?: CallApiContextParams,
   options?: CallApiOptionsParams,
-): Promise<string> {
+): Promise<TargetResponse> {
   let targetRespRaw;
+
   try {
     targetRespRaw = await targetProvider.callApi(targetPrompt, context, options);
   } catch (error) {
-    return (error as Error).message;
+    return { output: '', error: (error as Error).message, tokenUsage: { numRequests: 1 } };
   }
 
   if (targetRespRaw?.output) {
-    return typeof targetRespRaw.output === 'string'
-      ? targetRespRaw.output
-      : JSON.stringify(targetRespRaw.output);
+    return {
+      output:
+        typeof targetRespRaw.output === 'string'
+          ? targetRespRaw.output
+          : JSON.stringify(targetRespRaw.output),
+      sessionId: targetRespRaw.sessionId,
+      tokenUsage: targetRespRaw.tokenUsage || { numRequests: 1 },
+    };
   }
 
   if (targetRespRaw?.error) {
-    return targetRespRaw.error;
+    return {
+      output: '',
+      error: targetRespRaw.error,
+      sessionId: targetRespRaw.sessionId,
+      tokenUsage: { numRequests: 1 },
+    };
   }
 
   throw new Error('Expected target output or error to be set');

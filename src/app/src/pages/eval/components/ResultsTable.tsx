@@ -29,10 +29,10 @@ import Select from '@mui/material/Select';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import invariant from '@promptfoo/util/invariant';
 import type { CellContext, ColumnDef, VisibilityState } from '@tanstack/table-core';
 import yaml from 'js-yaml';
 import remarkGfm from 'remark-gfm';
-import invariant from 'tiny-invariant';
 import CustomMetrics from './CustomMetrics';
 import EvalOutputCell from './EvalOutputCell';
 import EvalOutputPromptDialog from './EvalOutputPromptDialog';
@@ -170,6 +170,14 @@ function ResultsTable({
   invariant(table, 'Table should be defined');
   const { head, body } = table;
 
+  const [lightboxOpen, setLightboxOpen] = React.useState(false);
+  const [lightboxImage, setLightboxImage] = React.useState<string | null>(null);
+
+  const toggleLightbox = (url?: string) => {
+    setLightboxImage(url || null);
+    setLightboxOpen(!lightboxOpen);
+  };
+
   const handleRating = React.useCallback(
     async (
       rowIndex: number,
@@ -294,7 +302,6 @@ function ResultsTable({
           } else if (filterMode === 'different') {
             outputsPassFilter = !row.outputs.every((output) => output.text === row.outputs[0].text);
           } else if (filterMode === 'highlights') {
-            console.log(row.outputs[0].text);
             outputsPassFilter = row.outputs.some((output) =>
               output.gradingResult?.comment?.startsWith('!highlight'),
             );
@@ -476,6 +483,42 @@ function ResultsTable({
                       <strong>Asserts:</strong> {numGoodAsserts[idx]}/{numAsserts[idx]} passed
                     </div>
                   ) : null}
+                  {prompt.metrics?.cost ? (
+                    <div>
+                      <strong>Total Cost:</strong>{' '}
+                      <Tooltip
+                        title={`Average: $${Intl.NumberFormat(undefined, {
+                          minimumFractionDigits: 1,
+                          maximumFractionDigits: prompt.metrics.cost / body.length >= 1 ? 2 : 4,
+                        }).format(prompt.metrics.cost / body.length)} per test`}
+                      >
+                        <span style={{ cursor: 'help' }}>
+                          $
+                          {Intl.NumberFormat(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: prompt.metrics.cost >= 1 ? 2 : 4,
+                          }).format(prompt.metrics.cost)}
+                        </span>
+                      </Tooltip>
+                    </div>
+                  ) : null}
+                  {prompt.metrics?.tokenUsage?.total ? (
+                    <div>
+                      <strong>Total Tokens:</strong>{' '}
+                      {Intl.NumberFormat(undefined, {
+                        maximumFractionDigits: 0,
+                      }).format(prompt.metrics.tokenUsage.total)}
+                    </div>
+                  ) : null}
+
+                  {prompt.metrics?.tokenUsage?.total ? (
+                    <div>
+                      <strong>Avg Tokens:</strong>{' '}
+                      {Intl.NumberFormat(undefined, {
+                        maximumFractionDigits: 0,
+                      }).format(prompt.metrics.tokenUsage.total / body.length)}
+                    </div>
+                  ) : null}
                   {prompt.metrics?.totalLatencyMs ? (
                     <div>
                       <strong>Avg Latency:</strong>{' '}
@@ -483,14 +526,6 @@ function ResultsTable({
                         maximumFractionDigits: 0,
                       }).format(prompt.metrics.totalLatencyMs / body.length)}{' '}
                       ms
-                    </div>
-                  ) : null}
-                  {prompt.metrics?.tokenUsage?.total ? (
-                    <div>
-                      <strong>Avg Tokens:</strong>{' '}
-                      {Intl.NumberFormat(undefined, {
-                        maximumFractionDigits: 0,
-                      }).format(prompt.metrics.tokenUsage.total / body.length)}
                     </div>
                   ) : null}
                   {prompt.metrics?.totalLatencyMs && prompt.metrics?.tokenUsage?.completion ? (
@@ -504,11 +539,6 @@ function ResultsTable({
                               (prompt.metrics.totalLatencyMs / 1000),
                           )
                         : '0'}
-                    </div>
-                  ) : null}
-                  {prompt.metrics?.cost ? (
-                    <div>
-                      <strong>Cost:</strong> ${prompt.metrics.cost.toPrecision(2)}
                     </div>
                   ) : null}
                 </div>
@@ -725,6 +755,46 @@ function ResultsTable({
                     colBorderDrawn = true;
                   }
                   const shouldDrawRowBorder = rowIndex === 0 && !isMetadataCol;
+
+                  let cellContent = flexRender(cell.column.columnDef.cell, cell.getContext());
+                  const value = cell.getValue();
+                  if (
+                    typeof value === 'string' &&
+                    (value.match(/^data:(image\/[a-z]+|application\/octet-stream);base64,/) ||
+                      value.match(/^\/[0-9A-Za-z+/]{4}.*/))
+                  ) {
+                    const imgSrc = value.startsWith('data:')
+                      ? value
+                      : `data:image/jpeg;base64,${value}`;
+                    cellContent = (
+                      <>
+                        <img
+                          src={imgSrc}
+                          alt="Base64 encoded image"
+                          style={{
+                            maxWidth: '100%',
+                            height: 'auto',
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => toggleLightbox(imgSrc)}
+                        />
+                        {lightboxOpen && lightboxImage === imgSrc && (
+                          <div className="lightbox" onClick={() => toggleLightbox()}>
+                            <img
+                              src={lightboxImage}
+                              alt="Lightbox"
+                              style={{
+                                maxWidth: '90%',
+                                maxHeight: '90vh',
+                                objectFit: 'contain',
+                              }}
+                            />
+                          </div>
+                        )}
+                      </>
+                    );
+                  }
+
                   return (
                     <td
                       key={cell.id}
@@ -733,9 +803,9 @@ function ResultsTable({
                       }}
                       className={`${isMetadataCol ? 'variable' : ''} ${
                         shouldDrawRowBorder ? 'first-prompt-row' : ''
-                      } ${shouldDrawColBorder ? 'first-prompt-col' : ''}`}
+                      } ${shouldDrawColBorder ? 'first-prompt-col' : 'second-prompt-column'}`}
                     >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      {cellContent}
                     </td>
                   );
                 })}

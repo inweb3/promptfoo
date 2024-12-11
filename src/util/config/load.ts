@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import { globSync } from 'glob';
 import yaml from 'js-yaml';
 import * as path from 'path';
-import invariant from 'tiny-invariant';
 import { fromError } from 'zod-validation-error';
 import { readAssertions } from '../../assertions';
 import { validateAssertions } from '../../assertions/validateAssertions';
@@ -30,6 +29,7 @@ import {
 } from '../../types';
 import { maybeLoadFromExternalFile, readFilters } from '../../util';
 import { isJavascriptFile } from '../../util/file';
+import invariant from '../../util/invariant';
 import { PromptSchema } from '../../validators/prompts';
 
 export async function dereferenceConfig(rawConfig: UnifiedConfig): Promise<UnifiedConfig> {
@@ -367,7 +367,7 @@ export async function combineConfigs(configPaths: string[]): Promise<UnifiedConf
           typeof prompt === 'string' ||
             (typeof prompt === 'object' &&
               (typeof prompt.raw === 'string' || typeof prompt.label === 'string')),
-          'Invalid prompt',
+          `Invalid prompt: ${JSON.stringify(prompt)}. Prompts must be either a string or an object with a 'raw' or 'label' string property.`,
         );
         addSeenPrompt(makeAbsolute(configPaths[idx], prompt as string | Prompt));
       });

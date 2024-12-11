@@ -10,6 +10,7 @@ import { cloudConfig } from './globalConfig/cloud';
 import logger from './logger';
 import type Eval from './models/eval';
 import type { SharedResults } from './types';
+import invariant from './util/invariant';
 
 async function targetHostCanUseNewResults(apiHost: string): Promise<boolean> {
   const response = await fetchWithProxy(`${apiHost}/health`, {
@@ -87,6 +88,8 @@ export async function createShareableUrl(
       });
       setUserEmail(email);
     }
+    evalRecord.author = email;
+    await evalRecord.save();
   }
 
   let response: Response;
@@ -95,6 +98,17 @@ export async function createShareableUrl(
   if (cloudConfig.isEnabled()) {
     apiBaseUrl = cloudConfig.getApiHost();
     url = `${apiBaseUrl}/results`;
+
+    const loggedInEmail = getUserEmail();
+    invariant(loggedInEmail, 'User email is not set');
+    const evalAuthor = evalRecord.author;
+    if (evalAuthor !== loggedInEmail) {
+      logger.warn(
+        `Warning: Changing eval author from ${evalAuthor} to logged-in user ${loggedInEmail}`,
+      );
+    }
+    evalRecord.author = loggedInEmail;
+    await evalRecord.save();
   } else {
     apiBaseUrl =
       typeof evalRecord.config.sharing === 'object'

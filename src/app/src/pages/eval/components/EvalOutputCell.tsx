@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useShiftKey } from '@app/hooks/useShiftKey';
 import Tooltip from '@mui/material/Tooltip';
@@ -12,6 +13,10 @@ import CommentDialog from './TableCommentDialog';
 import TruncatedText from './TruncatedText';
 import { useStore as useResultsViewStore } from './store';
 
+type CSSPropertiesWithCustomVars = React.CSSProperties & {
+  [key: `--${string}`]: string | number;
+};
+
 function scoreToString(score: number | null) {
   if (score === null || score === 0 || score === 1) {
     // Don't show boolean scores.
@@ -20,7 +25,7 @@ function scoreToString(score: number | null) {
   return `(${score.toFixed(2)})`;
 }
 
-interface EvalOutputCellProps {
+export interface EvalOutputCellProps {
   output: EvaluateTableOutput;
   maxTextLength: number;
   rowIndex: number;
@@ -44,7 +49,8 @@ function EvalOutputCell({
   showDiffs: boolean;
   searchText: string;
 }) {
-  const { renderMarkdown, prettifyJson, showPrompts, showPassFail } = useResultsViewStore();
+  const { renderMarkdown, prettifyJson, showPrompts, showPassFail, maxImageWidth, maxImageHeight } =
+    useResultsViewStore();
   const [openPrompt, setOpen] = React.useState(false);
   const handlePromptOpen = () => {
     setOpen(true);
@@ -180,7 +186,9 @@ function EvalOutputCell({
     } catch (error) {
       console.error('Invalid regular expression:', (error as Error).message);
     }
-  } else if (text.match(/^data:(image\/[a-z]+|application\/octet-stream);base64,/)) {
+  } else if (
+    text.match(/^data:(image\/[a-z]+|application\/octet-stream|image\/svg\+xml);(base64,)?/)
+  ) {
     node = (
       <img
         src={text}
@@ -392,10 +400,16 @@ function EvalOutputCell({
     </div>
   );
 
-  const cellStyle: Record<string, string> = {};
-  if (output.gradingResult?.comment === '!highlight') {
-    cellStyle.backgroundColor = '#ffffeb';
-  }
+  const cellStyle = useMemo(() => {
+    const base =
+      output.gradingResult?.comment === '!highlight' ? { backgroundColor: '#ffffeb' } : {};
+
+    return {
+      ...base,
+      '--max-image-width': `${maxImageWidth}px`,
+      '--max-image-height': `${maxImageHeight}px`,
+    } as CSSPropertiesWithCustomVars;
+  }, [output.gradingResult?.comment, maxImageWidth, maxImageHeight]);
 
   // Pass/fail badge creation
   let passCount = 0;
@@ -454,6 +468,21 @@ function EvalOutputCell({
   }
 
   const scoreString = scoreToString(output.score);
+
+  const getCombinedContextText = () => {
+    if (!output.gradingResult?.componentResults) {
+      return output.text;
+    }
+
+    return output.gradingResult.componentResults
+      .map((result, index) => {
+        const displayName = result.assertion?.metric || result.assertion?.type || 'unknown';
+        const value = result.assertion?.value || '';
+        return `Assertion ${index + 1} (${displayName}): ${value}`;
+      })
+      .join('\n\n');
+  };
+
   return (
     <div className="cell" style={cellStyle}>
       {showPassFail && (
@@ -501,7 +530,7 @@ function EvalOutputCell({
       )}
       <CommentDialog
         open={commentDialogOpen}
-        contextText={output.text}
+        contextText={getCombinedContextText()}
         commentText={commentText}
         onClose={handleCommentClose}
         onSave={handleCommentSave}

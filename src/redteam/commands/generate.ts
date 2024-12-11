@@ -5,7 +5,6 @@ import dedent from 'dedent';
 import * as fs from 'fs';
 import yaml from 'js-yaml';
 import path from 'path';
-import invariant from 'tiny-invariant';
 import { z } from 'zod';
 import { synthesize } from '..';
 import { disableCache } from '../../cache';
@@ -15,8 +14,10 @@ import logger, { setLogLevel } from '../../logger';
 import telemetry from '../../telemetry';
 import type { TestSuite, UnifiedConfig } from '../../types';
 import { printBorder, setupEnv } from '../../util';
+import { isRunningUnderNpx } from '../../util';
 import { resolveConfigs } from '../../util/config/load';
 import { writePromptfooConfig } from '../../util/config/manage';
+import invariant from '../../util/invariant';
 import { RedteamGenerateOptionsSchema, RedteamConfigSchema } from '../../validators/redteam';
 import {
   REDTEAM_MODEL,
@@ -25,9 +26,9 @@ import {
   DEFAULT_STRATEGIES,
   ADDITIONAL_STRATEGIES,
 } from '../constants';
+import { shouldGenerateRemote } from '../remoteGeneration';
 import type { RedteamStrategyObject, SynthesizeOptions } from '../types';
 import type { RedteamFileConfig, RedteamCliGenerateOptions } from '../types';
-import { shouldGenerateRemote } from '../util';
 
 function getConfigHash(configPath: string): string {
   const content = fs.readFileSync(configPath, 'utf8');
@@ -84,7 +85,9 @@ export async function doGenerateRedteam(options: Partial<RedteamCliGenerateOptio
   } else {
     logger.info(
       chalk.red(
-        `\nCan't generate without configuration - run ${chalk.yellow.bold('promptfoo redteam init')} first`,
+        `\nCan't generate without configuration - run ${chalk.yellow.bold(
+          isRunningUnderNpx() ? 'npx promptfoo redteam init' : 'promptfoo redteam init',
+        )} first`,
       ),
     );
     return;
@@ -98,13 +101,41 @@ export async function doGenerateRedteam(options: Partial<RedteamCliGenerateOptio
   });
   await telemetry.send();
 
-  let plugins =
-    redteamConfig?.plugins && redteamConfig.plugins.length > 0
-      ? redteamConfig.plugins
-      : Array.from(REDTEAM_DEFAULT_PLUGINS).map((plugin) => ({
-          id: plugin,
-          numTests: options.numTests ?? redteamConfig?.numTests,
-        }));
+  let plugins;
+
+  // If plugins are defined in the config file
+  if (redteamConfig?.plugins && redteamConfig.plugins.length > 0) {
+    plugins = redteamConfig.plugins.map((plugin) => {
+      // Base configuration that all plugins will have
+      const pluginConfig: {
+        id: string;
+        numTests: number | undefined;
+        config?: Record<string, any>;
+      } = {
+        // Handle both string-style ('pluginName') and object-style ({ id: 'pluginName' }) plugins
+        id: typeof plugin === 'string' ? plugin : plugin.id,
+        // Use plugin-specific numTests if available, otherwise fall back to global settings
+        numTests:
+          (typeof plugin === 'object' && plugin.numTests) ||
+          options.numTests ||
+          redteamConfig?.numTests,
+      };
+
+      // If plugin has additional config options, include them
+      if (typeof plugin === 'object' && plugin.config) {
+        pluginConfig.config = plugin.config;
+      }
+
+      return pluginConfig;
+    });
+  } else {
+    // If no plugins specified, use default plugins
+    plugins = Array.from(REDTEAM_DEFAULT_PLUGINS).map((plugin) => ({
+      id: plugin,
+      numTests: options.numTests ?? redteamConfig?.numTests,
+    }));
+  }
+
   // override plugins with command line options
   if (Array.isArray(options.plugins) && options.plugins.length > 0) {
     plugins = options.plugins.map((plugin) => ({
@@ -188,7 +219,9 @@ export async function doGenerateRedteam(options: Partial<RedteamCliGenerateOptio
       redteam: { ...(existingYaml.redteam || {}), ...updatedRedteamConfig },
       metadata: {
         ...(existingYaml.metadata || {}),
-        ...(configPath ? { configHash: getConfigHash(configPath) } : {}),
+        ...(configPath && redteamTests.length > 0
+          ? { configHash: getConfigHash(configPath) }
+          : { configHash: 'force-regenerate' }),
       },
     };
     writePromptfooConfig(updatedYaml, options.output);
@@ -196,13 +229,14 @@ export async function doGenerateRedteam(options: Partial<RedteamCliGenerateOptio
     const relativeOutputPath = path.relative(process.cwd(), options.output);
     logger.info(`Wrote ${redteamTests.length} new test cases to ${relativeOutputPath}`);
     if (!options.inRedteamRun) {
+      const commandPrefix = isRunningUnderNpx() ? 'npx promptfoo' : 'promptfoo';
       logger.info(
         '\n' +
           chalk.green(
             `Run ${chalk.bold(
               relativeOutputPath === 'redteam.yaml'
-                ? 'promptfoo redteam eval'
-                : `promptfoo redteam eval -c ${relativeOutputPath}`,
+                ? `${commandPrefix} redteam eval`
+                : `${commandPrefix} redteam eval -c ${relativeOutputPath}`,
             )} to run the red team!`,
           ),
       );
@@ -228,9 +262,10 @@ export async function doGenerateRedteam(options: Partial<RedteamCliGenerateOptio
     logger.info(
       `\nWrote ${redteamTests.length} new test cases to ${path.relative(process.cwd(), configPath)}`,
     );
+    const commandPrefix = isRunningUnderNpx() ? 'npx promptfoo' : 'promptfoo';
     const command = configPath.endsWith('promptfooconfig.yaml')
-      ? 'promptfoo eval'
-      : `promptfoo eval -c ${path.relative(process.cwd(), configPath)}`;
+      ? `${commandPrefix} eval`
+      : `${commandPrefix} eval -c ${path.relative(process.cwd(), configPath)}`;
     logger.info('\n' + chalk.green(`Run ${chalk.bold(`${command}`)} to run the red team!`));
   } else {
     writePromptfooConfig({ tests: redteamTests }, 'redteam.yaml');
@@ -310,7 +345,7 @@ export function redteamGenerateCommand(
       '-j, --max-concurrency <number>',
       'Maximum number of concurrent API calls',
       (val) => Number.parseInt(val, 10),
-      defaultConfig.evaluateOptions?.maxConcurrency,
+      defaultConfig.evaluateOptions?.maxConcurrency || 5,
     )
     .option('--delay <number>', 'Delay in milliseconds between plugin API calls', (val) =>
       Number.parseInt(val, 10),

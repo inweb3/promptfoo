@@ -1,5 +1,4 @@
 import dedent from 'dedent';
-import invariant from 'tiny-invariant';
 import cliState from '../../cliState';
 import logger from '../../logger';
 import { matchesLlmRubric } from '../../matchers';
@@ -14,10 +13,44 @@ import type {
 import type { AtomicTestCase, GradingResult } from '../../types';
 import { maybeLoadFromExternalFile } from '../../util';
 import { retryWithDeduplication, sampleArray } from '../../util/generation';
-import { getNunjucksEngine } from '../../util/templates';
+import invariant from '../../util/invariant';
+import { extractVariablesFromTemplate, getNunjucksEngine } from '../../util/templates';
 import { sleep } from '../../util/time';
-import { loadRedteamProvider } from '../providers/shared';
+import { redteamProviderManager } from '../providers/shared';
 import { removePrefix } from '../util';
+
+/**
+ * Parses the LLM response of generated prompts into an array of objects.
+ *
+ * @param generatedPrompts - The LLM response of generated prompts.
+ * @returns An array of { prompt: string } objects. Each of these objects represents a test case.
+ */
+export function parseGeneratedPrompts(generatedPrompts: string): { prompt: string }[] {
+  const parsePrompt = (line: string): string | null => {
+    if (!line.toLowerCase().includes('prompt:')) {
+      return null;
+    }
+    let prompt = removePrefix(line, 'Prompt');
+    // Handle numbered lists with various formats
+    prompt = prompt.replace(/^\d+[\.\)\-]?\s*-?\s*/, '');
+    // Handle quotes
+    prompt = prompt.replace(/^["'](.*)["']$/, '$1');
+    // Handle nested quotes
+    prompt = prompt.replace(/^'([^']*(?:'{2}[^']*)*)'$/, (_, p1) => p1.replace(/''/g, "'"));
+    prompt = prompt.replace(/^"([^"]*(?:"{2}[^"]*)*)"$/, (_, p1) => p1.replace(/""/g, '"'));
+    // Strip leading and trailing asterisks
+    prompt = prompt.replace(/^\*+/, '').replace(/\*$/, '');
+    return prompt.trim();
+  };
+
+  // Split by newline or semicolon
+  const promptLines = generatedPrompts.split(/[\n;]+/);
+
+  return promptLines
+    .map(parsePrompt)
+    .filter((prompt): prompt is string => prompt !== null)
+    .map((prompt) => ({ prompt }));
+}
 
 /**
  * Abstract base class for creating plugins that generate test cases.
@@ -100,7 +133,7 @@ export abstract class RedteamPluginBase {
         );
         return [];
       }
-      return this.parseGeneratedPrompts(generatedPrompts);
+      return parseGeneratedPrompts(generatedPrompts);
     };
     const allPrompts = await retryWithDeduplication(generatePrompts, n);
     const prompts = sampleArray(allPrompts, n);
@@ -123,36 +156,10 @@ export abstract class RedteamPluginBase {
   }
 
   /**
-   * Parses the LLM response of generated prompts into an array of objects.
-   *
-   * @param generatedPrompts - The LLM response of generated prompts.
-   * @returns An array of { prompt: string } objects. Each of these objects represents a test case.
+   * Appends modifiers to the template.
+   * @param template - The template to append modifiers to.
+   * @returns The modified template.
    */
-  protected parseGeneratedPrompts(generatedPrompts: string): { prompt: string }[] {
-    const parsePrompt = (line: string): string | null => {
-      if (!line.toLowerCase().includes('prompt:')) {
-        return null;
-      }
-      let prompt = removePrefix(line, 'Prompt');
-      // Handle numbered lists with various formats
-      prompt = prompt.replace(/^\d+[\.\)\-]?\s*-?\s*/, '');
-      // Handle quotes
-      prompt = prompt.replace(/^["'](.*)["']$/, '$1');
-      // Handle nested quotes
-      prompt = prompt.replace(/^'([^']*(?:'{2}[^']*)*)'$/, (_, p1) => p1.replace(/''/g, "'"));
-      prompt = prompt.replace(/^"([^"]*(?:"{2}[^"]*)*)"$/, (_, p1) => p1.replace(/""/g, '"'));
-      return prompt.trim();
-    };
-
-    // Split by newline or semicolon
-    const promptLines = generatedPrompts.split(/[\n;]+/);
-
-    return promptLines
-      .map(parsePrompt)
-      .filter((prompt): prompt is string => prompt !== null)
-      .map((prompt) => ({ prompt }));
-  }
-
   private appendModifiers(template: string): string {
     // Take everything under "modifiers" config key
     const modifiers: Record<string, string> =
@@ -208,14 +215,29 @@ export abstract class RedteamGraderBase {
     try {
       return nunjucks.renderString(this.rubric, vars);
     } catch (error) {
+      const extractedVars = extractVariablesFromTemplate(this.rubric);
+      const missingVars = extractedVars.filter((v) => !(v in vars));
+      const availableVars = extractedVars.filter((v) => v in vars);
+
+      logger.debug(dedent`
+        Template variables analysis:
+        Required variables: ${extractedVars.join(', ')}
+        Available variables: ${availableVars.join(', ')}
+        Missing variables: ${missingVars.join(', ')}
+      `);
+
       const err = error as Error;
-      logger.debug(`Error rendering rubric template: ${err.message}`);
-      logger.debug(`Template: ${this.rubric}`);
-      logger.debug(`Variables: ${JSON.stringify(vars)}`);
       throw new Error(dedent`
         Error rendering rubric template: ${err.message}
 
-        Variables: ${JSON.stringify(vars, null, 2)}
+        Required variables: ${extractedVars.join(', ')}
+        Missing variables: ${missingVars.length > 0 ? missingVars.join(', ') : 'none'}
+        Available variables: ${availableVars.join(', ')}
+
+        Template: ${this.rubric}
+
+        Provided variables:
+        ${JSON.stringify(vars, null, 2)}
       `);
     }
   }
@@ -240,6 +262,7 @@ export abstract class RedteamGraderBase {
     renderedValue: AssertionValue | undefined,
   ): Promise<{ grade: GradingResult; rubric: string; suggestions?: ResultSuggestion[] }> {
     invariant(test.metadata?.purpose, 'Test is missing purpose metadata');
+
     const vars = {
       ...test.metadata,
       prompt,
@@ -247,11 +270,19 @@ export abstract class RedteamGraderBase {
       tools: maybeLoadFromExternalFile(provider?.config?.tools),
       value: renderedValue,
     };
-    const finalRubric = this.renderRubric(vars);
+    // Grader examples are appended to all rubrics if present.
+    const graderExamples = test.metadata?.pluginConfig?.graderExamples;
+    let graderExamplesString = '';
+    if (graderExamples && graderExamples.length > 0) {
+      graderExamplesString =
+        '\n\n' +
+        graderExamples.map((example) => `EXAMPLE OUTPUT: ${JSON.stringify(example)}`).join('\n');
+    }
+    const finalRubric = this.renderRubric(vars) + graderExamplesString;
 
     const grade = await matchesLlmRubric(finalRubric, llmOutput, {
       ...test.options,
-      provider: await loadRedteamProvider({
+      provider: await redteamProviderManager.getProvider({
         provider:
           // First try loading the provider from defaultTest, otherwise fall back to the default red team provider.
           cliState.config?.defaultTest?.provider ||

@@ -1,9 +1,3 @@
-import { getEnvString } from '../envars';
-
-export function getRemoteGenerationUrl(): string {
-  return getEnvString('PROMPTFOO_REMOTE_GENERATION_URL', 'https://api.promptfoo.dev/v1/generate');
-}
-
 export const DEFAULT_NUM_TESTS_PER_PLUGIN = 5;
 
 export const REDTEAM_MODEL = 'openai:chat:gpt-4o';
@@ -65,14 +59,14 @@ export type UnalignedProviderHarmPlugin = keyof typeof UNALIGNED_PROVIDER_HARM_P
 
 export const REDTEAM_PROVIDER_HARM_PLUGINS = {
   'harmful:intellectual-property': 'Intellectual Property violation',
-  'harmful:misinformation-disinformation':
-    'Misinformation & Disinformation - Harmful lies and propaganda',
   'harmful:privacy': 'Privacy violations',
-  'harmful:specialized-advice': 'Specialized Advice - Financial',
 } as const;
 export type RedTeamProviderHarmPlugin = keyof typeof REDTEAM_PROVIDER_HARM_PLUGINS;
 
 export const HARM_PLUGINS = {
+  'harmful:misinformation-disinformation':
+    'Misinformation & Disinformation - Harmful lies and propaganda',
+  'harmful:specialized-advice': 'Specialized Advice - Financial',
   ...UNALIGNED_PROVIDER_HARM_PLUGINS,
   ...REDTEAM_PROVIDER_HARM_PLUGINS,
 } as const;
@@ -87,7 +81,6 @@ export const BASE_PLUGINS = [
   'excessive-agency',
   'hallucination',
   'hijacking',
-  'overreliance',
   'politics',
 ] as const;
 export type BasePlugin = (typeof BASE_PLUGINS)[number];
@@ -100,6 +93,7 @@ export const ADDITIONAL_PLUGINS = [
   'debug-access',
   'imitation',
   'indirect-prompt-injection',
+  'overreliance',
   'prompt-extraction',
   'rbac',
   'religion',
@@ -372,11 +366,19 @@ export const ALIASED_PLUGIN_MAPPINGS: Record<
 export const DEFAULT_STRATEGIES = ['jailbreak', 'prompt-injection'] as const;
 export type DefaultStrategy = (typeof DEFAULT_STRATEGIES)[number];
 
+export const MULTI_TURN_STRATEGIES = ['crescendo', 'goat'] as const;
+export type MultiTurnStrategy = (typeof MULTI_TURN_STRATEGIES)[number];
+
+export const AGENTIC_STRATEGIES = ['jailbreak', 'jailbreak:tree', 'crescendo', 'goat'] as const;
+export type AgenticStrategy = (typeof AGENTIC_STRATEGIES)[number];
+
 export const ADDITIONAL_STRATEGIES = [
   'ascii-smuggling',
   'base64',
+  'citation',
   'crescendo',
   'goat',
+  'jailbreak:composite',
   'jailbreak:tree',
   'leetspeak',
   'math-prompt',
@@ -400,6 +402,7 @@ export const subCategoryDescriptions: Record<Plugin | Strategy, string> = {
   basic: 'Single-shot, unoptimized attacks using raw prompts based on plugin description',
   bfla: 'Broken Function Level Authorization (BFLA) tests',
   bola: 'Broken Object Level Authorization (BOLA) tests',
+  citation: "Exploits model's bias toward authority",
   competitors: 'Competitor mentions and endorsements',
   contracts: 'Enters business or legal commitments without supervision',
   crescendo: 'Conversational attack strategy (high cost)',
@@ -438,6 +441,7 @@ export const subCategoryDescriptions: Record<Plugin | Strategy, string> = {
     'Tests if the prompt is vulnerable to instructions injected into variables in the prompt',
   intent: 'Attempts to manipulate the model to exhibit specific behaviors',
   jailbreak: 'Attempts to bypass security measures through iterative prompt refinement',
+  'jailbreak:composite': 'Finds novel jailbreak prompts by chaining together individual techniques',
   'jailbreak:tree': 'Tree-based jailbreak search (medium cost)',
   leetspeak: 'Attempts to obfuscate malicious content using leetspeak',
   'math-prompt': 'Encodes potentially harmful content using mathematical concepts and notation',
@@ -469,7 +473,8 @@ export const displayNameOverrides: Record<Plugin | Strategy, string> = {
   bola: 'Unauthorized Data Access',
   competitors: 'Competitor Endorsements',
   contracts: 'Unsupervised Contracts',
-  crescendo: 'Crescendo',
+  citation: 'Citation',
+  crescendo: 'Multi-turn Crescendo',
   'cross-session-leak': 'Cross-Session Leak',
   'debug-access': 'Debug Access',
   default: 'Default',
@@ -505,7 +510,8 @@ export const displayNameOverrides: Record<Plugin | Strategy, string> = {
   'indirect-prompt-injection': 'Indirect Prompt Injection',
   intent: 'Intent',
   jailbreak: 'Single-shot optimization',
-  'jailbreak:tree': 'Tree-based optimization',
+  'jailbreak:composite': 'Composite Jailbreaks',
+  'jailbreak:tree': 'Tree-based Optimization',
   leetspeak: 'Leetspeak Encoding',
   'math-prompt': 'Math Prompt',
   multilingual: 'Multilingual',
@@ -541,6 +547,10 @@ export const severityDisplayNames: Record<Severity, string> = {
   [Severity.Low]: 'Low',
 };
 
+/*
+ * Default severity values for each plugin.
+ * Use getRiskCategorySeverityMap() whenever possible to respect the user's severity settings.
+ */
 export const riskCategorySeverityMap: Record<Plugin, Severity> = {
   'ascii-smuggling': Severity.Low,
   bfla: Severity.High,
@@ -827,13 +837,15 @@ export const pluginDescriptions: Record<Plugin, string> = {
 export const strategyDescriptions: Record<Strategy, string> = {
   'ascii-smuggling': 'Obfuscates malicious content using ASCII characters to bypass filters',
   base64: 'Encodes malicious content in Base64 to evade detection',
-  basic: 'Single-shot',
+  basic: 'Single-shot malicious prompts',
+  citation: "Exploits model's bias toward authority",
   crescendo:
     'A multi-turn attack that gradually escalates the conversation to probe for vulnerabilities',
-  default: 'Single-shot',
+  default: 'Preset strategies',
   goat: 'Dynamically combines multiple adversarial prompting techniques in multi-turn conversations',
   jailbreak:
     'An optimized single shot attack generated by iteratively refining the prompt to bypass security measures',
+  'jailbreak:composite': 'Finds novel jailbreak prompts by chaining together individual techniques',
   'jailbreak:tree': 'Uses a tree-based search approach for more sophisticated jailbreaking',
   leetspeak: 'Replaces characters with similar-looking numbers or symbols to obfuscate content',
   'math-prompt': 'Encodes harmful content using mathematical concepts and notation',
@@ -846,14 +858,25 @@ export const strategyDisplayNames: Record<Strategy, string> = {
   'ascii-smuggling': 'ASCII Smuggling',
   base64: 'Base64 Encoding',
   basic: 'Basic',
+  citation: 'Authority Bias',
   crescendo: 'Multi-turn Crescendo',
   default: 'Basic',
-  goat: 'GOAT',
+  goat: 'Generative Offensive Agent Tester',
+  'jailbreak:composite': 'Composite Jailbreaks',
   'jailbreak:tree': 'Tree-based Optimization',
   jailbreak: 'Single-shot Optimization',
-  leetspeak: 'Leetspeak',
+  leetspeak: 'Leetspeak Encoding',
   'math-prompt': 'Mathematical Encoding',
-  multilingual: 'Multilingual',
+  multilingual: 'Multilingual Encoding',
   'prompt-injection': 'Prompt Injection',
   rot13: 'ROT13 Encoding',
 };
+
+export const PLUGIN_PRESET_DESCRIPTIONS: Record<string, string> = {
+  Default: 'Promptfoo recommended',
+  NIST: 'NIST AI Risk Management Framework',
+  'OWASP LLM': 'OWASP LLM Top 10',
+  'OWASP API': 'OWASP API Top 10',
+  MITRE: 'MITRE ATLAS framework',
+  Custom: 'Choose your own plugins',
+} as const;
